@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goofball's Paintball - Tactical Camera</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #1a1a1a;
+            font-family: 'Press Start 2P', cursive;
+            user-select: none;
+            image-rendering: pixelated;
+            cursor: none; 
+        }
+        canvas { display: block; }
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            pointer-events: none;
+            text-shadow: 4px 4px 0px #000;
+            font-size: 10px;
+            z-index: 50;
+        }
+        #stats-ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            text-align: right;
+            text-shadow: 3px 3px 0px #000;
+            pointer-events: none;
+            z-index: 50;
+        }
+        .rainbow-text {
+            background: linear-gradient(to right, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8b00ff);
+            -webkit-background-clip: text;
+            color: transparent;
+            font-size: 3rem;
+            text-align: center;
+            line-height: 1.5;
+        }
+        .screen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            border: 10px solid #fff;
+            cursor: auto;
+        }
+        .menu-screen {
+            background: #444;
+            background-image: radial-gradient(#555 1px, transparent 0);
+            background-size: 40px 40px;
+        }
+        .game-over-screen { background: #0f0f0f; display: none; }
+        .grey-text { color: #777; font-size: 3rem; text-align: center; margin-bottom: 50px; }
+        .weapon-slot {
+            background: #000;
+            padding: 8px;
+            border: 4px solid #555;
+            margin-top: 10px;
+            color: #aaa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 60px;
+        }
+        .pixel-btn {
+            background: #fff;
+            color: #000;
+            border-bottom: 6px solid #aaa;
+            border-right: 6px solid #aaa;
+            padding: 15px 30px;
+            transition: all 0.1s;
+        }
+        .pixel-btn:active {
+            border-bottom: 2px solid #aaa;
+            border-right: 2px solid #aaa;
+            transform: translate(4px, 4px);
+        }
+        #hp-bar-outer {
+            width: 200px;
+            height: 20px;
+            background: #333;
+            border: 2px solid #fff;
+            margin-top: 5px;
+        }
+        #hp-bar-inner {
+            height: 100%;
+            background: #e74c3c;
+            width: 100%;
+            transition: width 0.2s;
+        }
+        #custom-cursor {
+            position: fixed;
+            width: 24px;
+            height: 24px;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+<div id="custom-cursor">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <rect x="4" y="10" width="16" height="4" fill="white"/>
+        <rect x="10" y="4" width="4" height="16" fill="white"/>
+        <path d="M4 10V14H20V10H4Z" stroke="black" stroke-width="1"/>
+        <path d="M10 4H14V20H10V4Z" stroke="black" stroke-width="1"/>
+    </svg>
+</div>
+
+<div id="menu" class="screen menu-screen">
+    <h1 class="rainbow-text">GOOFBALL'S<br>PAINTBALL</h1>
+    <button id="startBtn" class="pixel-btn mt-12 text-xl">START MATCH</button>
+    <p class="mt-8 text-white text-[10px]">WASD: MOVE | SHIFT: RUN | L-CLICK: SHOOT | R-CLICK: LOOK AHEAD</p>
+</div>
+
+<div id="game-over" class="screen game-over-screen">
+    <h1 class="grey-text">ELIMINATED</h1>
+    <div class="text-white mb-8 text-center leading-loose">
+        KILLS: <span id="final-kills">0</span><br>
+        BEST: <span id="final-best">0</span>
+    </div>
+    <button id="restartBtn" class="pixel-btn text-xl">RETRY</button>
+</div>
+
+<div id="stats-ui" class="hidden">
+    <div class="text-lg">KILLS: <span id="kills-val">0</span></div>
+</div>
+
+<div id="ui" class="hidden">
+    <div id="hp-container" class="bg-black/80 p-2 border-2 border-white mb-2">
+        <div>HP: <span id="hp-val">150</span> / 150</div>
+        <div id="hp-bar-outer"><div id="hp-bar-inner"></div></div>
+    </div>
+    <div id="weapon-name" class="text-xl mb-4">PAINTBALL GUN</div>
+    <div class="flex gap-2">
+        <div class="weapon-slot" id="slot-0">1:GUN</div>
+        <div class="weapon-slot" id="slot-1">2:LNC</div>
+        <div class="weapon-slot" id="slot-2">3:SNP</div>
+        <div class="weapon-slot" id="slot-3">4:GTL</div>
+    </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const startBtn = document.getElementById('startBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const menu = document.getElementById('menu');
+    const gameOverScreen = document.getElementById('game-over');
+    const ui = document.getElementById('ui');
+    const statsUi = document.getElementById('stats-ui');
+    const customCursor = document.getElementById('custom-cursor');
+
+    const SCALE = 1.4; 
+    const MAP_SIZE = 4000;
+    const MAX_HP = 150;
+    const SPAWN_PROTECTION_TIME = 3000;
+    const NPC_DETECTION_RANGE = 700;
+    
+    let isGameOver = false;
+    let spawnTime = 0;
+    let killCount = 0;
+    let bestKills = parseInt(localStorage.getItem('paintball_best_kills')) || 0;
+
+    const WEAPONS = [
+        { name: "PAINTBALL GUN", fireRate: 120, speed: 10, damage: 15, size: 4, spread: 0.05, type: 'auto' },
+        { name: "PAINTBALL LAUNCHER", fireRate: 2500, speed: 5, damage: 100, size: 25, splash: 180, type: 'launcher' },
+        { name: "PAINTBALL SNIPER", fireRate: 2000, speed: 28, damage: 85, size: 3, spread: 0, type: 'sniper' },
+        { name: "PAINTBALL GATLING", fireRate: 60, speed: 18, damage: 7, size: 3, spread: 0.15, type: 'gatling' }
+    ];
+
+    const COLORS = ['#E74C3C', '#2ECC71', '#3498DB', '#F1C40F', '#9B59B6', '#1ABC9C', '#E67E22'];
+
+    let player = {
+        id: 'player', x: 2000, y: 2000, r: 12, color: '#3498DB', hp: MAX_HP,
+        weaponIdx: 0, lastFired: 0, launcherLastFired: -20000,
+        baseSpeed: 3.5, sprintSpeed: 6, angle: 0
+    };
+
+    let camera = { x: 0, y: 0, offsetX: 0, offsetY: 0 };
+    let enemies = [];
+    let bullets = [];
+    let splats = []; 
+    let obstacles = [];
+    let keys = {};
+    let mouse = { x: 0, y: 0, leftDown: false, rightDown: false };
+
+    function initMap() {
+        obstacles = [];
+        const wallColor = '#222';
+        obstacles.push({x: -100, y: -100, w: MAP_SIZE + 200, h: 100, color: wallColor}); 
+        obstacles.push({x: -100, y: MAP_SIZE, w: MAP_SIZE + 200, h: 100, color: wallColor});
+        obstacles.push({x: -100, y: 0, w: 100, h: MAP_SIZE, color: wallColor});
+        obstacles.push({x: MAP_SIZE, y: 0, w: 100, h: MAP_SIZE, color: wallColor});
+
+        for(let i=0; i < 250; i++) {
+            const w = Math.random() > 0.8 ? 150 : 40;
+            const h = Math.random() > 0.8 ? 150 : 40;
+            obstacles.push({
+                x: Math.random() * (MAP_SIZE - 300) + 150,
+                y: Math.random() * (MAP_SIZE - 300) + 150,
+                w, h, color: '#444'
+            });
+        }
+    }
+
+    function spawnEnemies() {
+        const count = 35 - enemies.length;
+        for(let i=0; i<count; i++) {
+            enemies.push({
+                id: 'en-' + Math.random(),
+                x: Math.random() * (MAP_SIZE - 300) + 150,
+                y: Math.random() * (MAP_SIZE - 300) + 150,
+                r: 12, hp: MAX_HP,
+                color: COLORS[Math.floor(Math.random()*COLORS.length)],
+                weaponIdx: Math.floor(Math.random() * WEAPONS.length),
+                lastFired: 0, launcherLastFired: -20000,
+                targetAngle: 0, moveTimer: 0, vx: 0, vy: 0, speed: 2.8
+            });
+        }
+    }
+
+    window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if(e.key >= '1' && e.key <= '4') player.weaponIdx = parseInt(e.key) - 1;
+    });
+    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+    window.addEventListener('mousemove', e => {
+        mouse.x = e.clientX; mouse.y = e.clientY;
+        customCursor.style.left = e.clientX + 'px';
+        customCursor.style.top = e.clientY + 'px';
+    });
+    window.addEventListener('mousedown', e => { 
+        if(e.button === 0) mouse.leftDown = true; 
+        if(e.button === 2) mouse.rightDown = true;
+    });
+    window.addEventListener('mouseup', e => { 
+        if(e.button === 0) mouse.leftDown = false; 
+        if(e.button === 2) mouse.rightDown = false;
+    });
+
+    function fire(entity, isPlayer) {
+        const weapon = WEAPONS[entity.weaponIdx];
+        const now = Date.now();
+        const fireLimit = weapon.type === 'launcher' ? entity.launcherLastFired : entity.lastFired;
+        if (now - fireLimit < weapon.fireRate) return;
+        
+        if (weapon.type === 'launcher') entity.launcherLastFired = now;
+        else entity.lastFired = now;
+
+        const angle = isPlayer ? player.angle : entity.targetAngle;
+        const finalAngle = angle + (Math.random() - 0.5) * weapon.spread;
+
+        bullets.push({
+            x: entity.x + Math.cos(angle) * 20,
+            y: entity.y + Math.sin(angle) * 20,
+            vx: Math.cos(finalAngle) * weapon.speed,
+            vy: Math.sin(finalAngle) * weapon.speed,
+            r: weapon.size, damage: weapon.damage,
+            color: entity.color, owner: entity,
+            type: weapon.type, splash: weapon.splash || 0,
+            life: 0, maxLife: 50
+        });
+    }
+
+    function createSplat(x, y, color, size) {
+        for(let i=0; i<3; i++) {
+            splats.push({
+                x: x + (Math.random()-0.5)*size,
+                y: y + (Math.random()-0.5)*size,
+                color, w: Math.random()*size + 4, h: Math.random()*size + 4
+            });
+        }
+        if(splats.length > 2000) splats.splice(0, 50);
+    }
+
+    function update() {
+        if(isGameOver) return;
+        if(player.hp <= 0) {
+            isGameOver = true;
+            document.body.style.cursor = 'auto';
+            customCursor.style.display = 'none';
+            document.getElementById('final-kills').innerText = killCount;
+            document.getElementById('final-best').innerText = bestKills;
+            gameOverScreen.style.display = 'flex';
+            return;
+        }
+
+        const now = Date.now();
+        const isInvincible = (now - spawnTime < SPAWN_PROTECTION_TIME);
+
+        const screenCenterX = canvas.width / 2;
+        const screenCenterY = canvas.height / 2;
+        player.angle = Math.atan2(mouse.y - screenCenterY, mouse.x - screenCenterX);
+
+        // Movement
+        const currentSpeed = keys['shift'] ? player.sprintSpeed : player.baseSpeed;
+        let mx = 0, my = 0;
+        if(keys['w']) my -= 1; if(keys['s']) my += 1;
+        if(keys['a']) mx -= 1; if(keys['d']) mx += 1;
+        if(mx !== 0 || my !== 0) {
+            const mag = Math.sqrt(mx*mx + my*my);
+            player.x += (mx/mag) * currentSpeed;
+            player.y += (my/mag) * currentSpeed;
+        }
+
+        // --- CAMERA LOGIC ---
+        if (mouse.rightDown) {
+            // Lean toward the mouse position
+            const targetOffsetX = (mouse.x - screenCenterX) * 0.6;
+            const targetOffsetY = (mouse.y - screenCenterY) * 0.6;
+            camera.offsetX += (targetOffsetX - camera.offsetX) * 0.1;
+            camera.offsetY += (targetOffsetY - camera.offsetY) * 0.1;
+        } else {
+            // Snap back to player
+            camera.offsetX *= 0.85;
+            camera.offsetY *= 0.85;
+        }
+
+        obstacles.forEach(o => {
+            if(player.x + player.r > o.x && player.x - player.r < o.x + o.w &&
+               player.y + player.r > o.y && player.y - player.r < o.y + o.h) {
+                const dx = player.x - (o.x + o.w/2);
+                const dy = player.y - (o.y + o.h/2);
+                if(Math.abs(dx/o.w) > Math.abs(dy/o.h)) player.x = dx > 0 ? o.x + o.w + player.r : o.x - player.r;
+                else player.y = dy > 0 ? o.y + o.h + player.r : o.y - player.r;
+            }
+        });
+
+        player.x = Math.max(20, Math.min(MAP_SIZE-20, player.x));
+        player.y = Math.max(20, Math.min(MAP_SIZE-20, player.y));
+
+        if(mouse.leftDown) fire(player, true);
+
+        enemies.forEach(en => {
+            let target = null;
+            let minDist = NPC_DETECTION_RANGE;
+            const dToP = Math.hypot(player.x - en.x, player.y - en.y);
+            if (!isInvincible && dToP < minDist) { minDist = dToP; target = player; }
+            enemies.forEach(other => {
+                if (other.id === en.id) return;
+                const d = Math.hypot(other.x - en.x, other.y - en.y);
+                if (d < minDist) { minDist = d; target = other; }
+            });
+
+            if (target) {
+                en.targetAngle = Math.atan2(target.y - en.y, target.x - en.x);
+                fire(en, false);
+                if (minDist < 150) { en.vx = -Math.cos(en.targetAngle) * en.speed; en.vy = -Math.sin(en.targetAngle) * en.speed; }
+                else if (minDist > 300) { en.vx = Math.cos(en.targetAngle) * en.speed; en.vy = Math.sin(en.targetAngle) * en.speed; }
+            } else {
+                en.moveTimer--;
+                if(en.moveTimer <= 0) {
+                    const ang = Math.random()*Math.PI*2;
+                    en.vx = Math.cos(ang) * (en.speed * 0.5); en.vy = Math.sin(ang) * (en.speed * 0.5);
+                    en.moveTimer = 60 + Math.random()*60;
+                }
+            }
+            en.x += en.vx; en.y += en.vy;
+            obstacles.forEach(o => {
+                if(en.x + en.r > o.x && en.x - en.r < o.x + o.w && en.y + en.r > o.y && en.y - en.r < o.y + o.h) {
+                    const dx = en.x - (o.x + o.w/2); const dy = en.y - (o.y + o.h/2);
+                    if(Math.abs(dx/o.w) > Math.abs(dy/o.h)) en.x = dx > 0 ? o.x + o.w + en.r : o.x - en.r;
+                    else en.y = dy > 0 ? o.y + o.h + en.r : o.y - en.r;
+                    en.moveTimer = 0;
+                }
+            });
+        });
+
+        for(let i = bullets.length-1; i >= 0; i--) {
+            const b = bullets[i];
+            b.x += b.vx; b.y += b.vy;
+            let hit = false;
+            if (b.type === 'launcher') { b.life++; if (b.life >= b.maxLife) hit = true; }
+            obstacles.forEach(o => {
+                if(!hit && b.x > o.x && b.x < o.x + o.w && b.y > o.y && b.y < o.y + o.h) { hit = true; createSplat(b.x, b.y, b.color, 15); }
+            });
+            if(!hit) {
+                const chars = [player, ...enemies];
+                for(let c of chars) {
+                    if(c === b.owner || (c === player && isInvincible)) continue;
+                    if(Math.hypot(b.x - c.x, b.y - c.y) < c.r + 5) {
+                        c.hp -= b.damage; hit = true;
+                        createSplat(b.x, b.y, b.color, 10);
+                        if(c.hp <= 0 && b.owner === player && c !== player) {
+                            killCount++;
+                            if(killCount > bestKills) { bestKills = killCount; localStorage.setItem('paintball_best_kills', bestKills); }
+                        }
+                        if(c.hp <= 0 && c !== player) { enemies = enemies.filter(e => e.id !== c.id); setTimeout(spawnEnemies, 2000); }
+                        break;
+                    }
+                }
+            }
+            if(hit) {
+                if(b.type === 'launcher') {
+                    const targets = [player, ...enemies];
+                    targets.forEach(t => {
+                        if (t === b.owner || (t === player && isInvincible)) return;
+                        const dist = Math.hypot(b.x - t.x, b.y - t.y);
+                        if(dist < b.splash) {
+                            t.hp -= b.damage * (1 - dist/b.splash);
+                            if(t.hp <= 0 && b.owner === player && t !== player) killCount++;
+                            if(t.hp <= 0 && t !== player) { enemies = enemies.filter(e => e.id !== t.id); setTimeout(spawnEnemies, 2000); }
+                        }
+                    });
+                    createSplat(b.x, b.y, b.color, 40);
+                }
+                bullets.splice(i, 1);
+            }
+        }
+    }
+
+    function draw() {
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(0,0,canvas.width, canvas.height);
+        if(isGameOver) return;
+
+        ctx.save();
+        // The camera translation now includes the offset from Right-Click
+        ctx.translate(canvas.width/2 - camera.offsetX, canvas.height/2 - camera.offsetY);
+        ctx.scale(SCALE, SCALE);
+        ctx.translate(-player.x, -player.y);
+
+        ctx.fillStyle = '#444';
+        ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
+
+        splats.forEach(s => { ctx.fillStyle = s.color; ctx.fillRect(s.x, s.y, s.w, s.h); });
+
+        obstacles.forEach(o => {
+            ctx.fillStyle = o.color; ctx.fillRect(o.x, o.y, o.w, o.h);
+            ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.strokeRect(o.x, o.y, o.w, o.h);
+        });
+
+        enemies.forEach(en => {
+            ctx.fillStyle = en.color; ctx.fillRect(en.x - 12, en.y - 12, 24, 24);
+            ctx.fillStyle = '#333'; ctx.fillRect(en.x - 15, en.y - 25, 30, 4);
+            ctx.fillStyle = '#e74c3c'; ctx.fillRect(en.x - 15, en.y - 25, 30 * (en.hp/MAX_HP), 4);
+        });
+
+        if (Date.now() - spawnTime < SPAWN_PROTECTION_TIME) {
+            ctx.beginPath(); ctx.arc(player.x, player.y, 25, 0, Math.PI*2);
+            ctx.strokeStyle = 'cyan'; ctx.lineWidth = 2; ctx.stroke();
+        }
+
+        ctx.fillStyle = player.color; ctx.fillRect(player.x - 12, player.y - 12, 24, 24);
+        bullets.forEach(b => { ctx.fillStyle = b.color; ctx.fillRect(b.x-b.r/2, b.y-b.r/2, b.r, b.r); });
+
+        ctx.restore();
+
+        document.getElementById('hp-val').innerText = Math.max(0, Math.round(player.hp));
+        document.getElementById('hp-bar-inner').style.width = (player.hp/MAX_HP * 100) + '%';
+        document.getElementById('kills-val').innerText = killCount;
+        document.getElementById('weapon-name').innerText = WEAPONS[player.weaponIdx].name;
+        for(let i=0; i<4; i++) {
+            document.getElementById('slot-'+i).style.borderColor = player.weaponIdx === i ? '#fff' : '#555';
+            document.getElementById('slot-'+i).style.color = player.weaponIdx === i ? '#fff' : '#555';
+        }
+        requestAnimationFrame(draw);
+    }
+
+    startBtn.addEventListener('click', () => {
+        menu.style.display = 'none'; ui.classList.remove('hidden'); statsUi.classList.remove('hidden');
+        customCursor.style.display = 'block'; document.body.style.cursor = 'none';
+        initMap(); spawnEnemies(); spawnTime = Date.now();
+        setInterval(update, 1000/60); draw();
+    });
+    restartBtn.addEventListener('click', () => location.reload());
+    window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+</script>
+</body>
+</html>
